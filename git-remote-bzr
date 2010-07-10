@@ -6,6 +6,7 @@ sys.path.insert(0, os.getenv("GITPYTHONLIB","."))
 
 import bzrlib.branch
 
+import binascii
 from git_remote_helpers.util import die, debug, warn, start_command, run_command
 from git_remote_helpers.git.repo import GitRepo
 from git_remote_helpers.git.exporter import GitExporter
@@ -106,34 +107,69 @@ def fetch_one(repo, rev_id):
 
     The object hash of the revision is returned.
     """
-    #import rpdb2
-    #rpdb2.start_embedded_debugger('assword')
-
     # write rev blobs
     tree = repo.branch.repository.revision_tree(rev_id)
     tree.lock_read()
+    treewalk = tree.walkdirs()
     try:
-        for file_id in tree.all_file_ids():
-            content = tree.get_file(file_id).read()
-            if not content:
-                continue
-            command = start_command(args=['git', 'hash-object',
-                                          '--stdin',
-                                          '-t', 'blob',
-                                          '-w',
-                                         ])
-            output, errors = command.communicate(content)
-            sha1 = output.strip('\n')
+        tree_content = []
+        while True:
+            tree_elem = treewalk.next()
+            if tree_elem[1][0][2] == 'file':
+                file_id = tree_elem[1][0][4]
+                base_name = tree_elem[1][0][1]
+                content = tree.get_file(file_id).read()
+                command = start_command(args=['git', 'hash-object',
+                                              '--stdin',
+                                              '-t', 'blob',
+                                              '-w',
+                                             ])
+                output, errors = command.communicate(content)
+                blob_hash = output.strip('\n')
+
+                # TODO fetch file mode mode
+                tree_content.append('100755 %s\0%s'%(base_name.encode('utf-8'),
+                                                     binascii.a2b_hex(blob_hash)))
+    except StopIteration:
+        pass
     finally:
         tree.unlock()
 
     # write rev trees
-    # TODO
+    # TODO write full tree
+    content = '\n'.join(tree_content)
+    command = start_command(args=['git', 'hash-object',
+                                  '--stdin',
+                                  '-t', 'tree',
+                                  '-w',
+                                 ])
+    output, errors = command.communicate(content)
+    tree_root_hash = output.strip('\n')
 
     # write commit
-    # TODO
+    # TODO add parent
+    # TODO write recursive
+    # TODO support multiple parents
+    revision = repo.branch.repository.get_revision(rev_id)
+    commit = ['tree %s' % tree_root_hash]
+    commit.append('committer %s %d %02d%02d' % (revision.committer,
+                                                revision.timestamp,
+                                                revision.timezone/3600,
+                                                revision.timezone%3600))
+    # prepend message with blank line
+    commit.append('')
+    commit.append(revision.message)
 
-    return sha1
+    content = '\n'.join(commit)
+    command = start_command(args=['git', 'hash-object',
+                                  '--stdin',
+                                  '-t', 'commit',
+                                  '-w',
+                                 ])
+    output, errors = command.communicate(content)
+    commit_hash = output.strip('\n')
+
+    return commit_hash
 
 
 def do_fetch(repo, args):
