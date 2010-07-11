@@ -93,6 +93,48 @@ def do_list(repo, args):
 #    repo = local_repo(repo, path)
 #    return repo
 
+
+def fetch_tree(tree, rev_id, folder=None):
+    folder = folder or ''
+    tree_content = []
+    treewalk = tree.list_files(from_dir=folder, recursive=False)
+    try:
+        while True:
+            tree_elem = treewalk.next()
+            base_name = tree_elem[0]
+            if tree_elem[2] == 'directory':
+                tree_hash = fetch_tree(tree, rev_id, folder=folder+'/'+tree_elem[0])
+                tree_content.append('40000 %s\0%s'%(base_name.encode('utf-8'),
+                                                    binascii.a2b_hex(tree_hash)))
+            if tree_elem[2] == 'file':
+                file_id = tree_elem[3]
+                base_name = tree_elem[0]
+                content = tree.get_file(file_id).read()
+                command = start_command(args=['git', 'hash-object',
+                                              '--stdin',
+                                              '-t', 'blob',
+                                              '-w',
+                                             ])
+                output, errors = command.communicate(content)
+                blob_hash = output.strip('\n')
+
+                # TODO fetch file mode mode
+                tree_content.append('100644 %s\0%s'%(base_name.encode('utf-8'),
+                                                     binascii.a2b_hex(blob_hash)))
+    except StopIteration:
+        pass
+
+    # write rev trees
+    content = ''.join(tree_content)
+    command = start_command(args=['git', 'hash-object',
+                                  '--stdin',
+                                  '-t', 'tree',
+                                  '-w',
+                                 ])
+    output, errors = command.communicate(content)
+    tree_hash = output.strip('\n')
+    return tree_hash
+
 # FIXME bzr history is linear? maybe support for multiple parents?
 def fetch_one(repo, rev_id, parent=None):
     """Imports a single revision and write it to the database.
@@ -102,42 +144,8 @@ def fetch_one(repo, rev_id, parent=None):
     # write rev blobs
     tree = repo.branch.repository.revision_tree(rev_id)
     tree.lock_read()
-    treewalk = tree.walkdirs()
-    try:
-        tree_content = []
-        while True:
-            tree_elem = treewalk.next()
-            for blob_elem in tree_elem[1]:
-                if blob_elem[2] == 'file':
-                    file_id = blob_elem[4]
-                    base_name = blob_elem[1]
-                    content = tree.get_file(file_id).read()
-                    command = start_command(args=['git', 'hash-object',
-                                                  '--stdin',
-                                                  '-t', 'blob',
-                                                  '-w',
-                                                 ])
-                    output, errors = command.communicate(content)
-                    blob_hash = output.strip('\n')
-
-                    # TODO fetch file mode mode
-                    tree_content.append('100755 %s\0%s'%(base_name.encode('utf-8'),
-                                                         binascii.a2b_hex(blob_hash)))
-    except StopIteration:
-        pass
-    finally:
-        tree.unlock()
-
-    # write rev trees
-    # TODO write full tree (handle recursion)
-    content = ''.join(tree_content)
-    command = start_command(args=['git', 'hash-object',
-                                  '--stdin',
-                                  '-t', 'tree',
-                                  '-w',
-                                 ])
-    output, errors = command.communicate(content)
-    tree_root_hash = output.strip('\n')
+    tree_root_hash = fetch_tree(tree, rev_id)
+    tree.unlock()
 
     # write commit
     # TODO write recursive
@@ -147,8 +155,8 @@ def fetch_one(repo, rev_id, parent=None):
     if parent:
         commit.append('parent %s' % parent)
     timestamp = "%d %+03d%02d" % (revision.timestamp,
-                                 revision.timezone/3600,
-                                 revision.timezone%3600)
+                                  revision.timezone/3600,
+                                  revision.timezone%3600)
     commit.append('author %s %s' % (revision.committer, timestamp))
     commit.append('committer %s %s' % (revision.committer, timestamp))
     # prepend message with blank line

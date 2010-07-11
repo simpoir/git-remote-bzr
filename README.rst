@@ -8,16 +8,15 @@ As this is only an early proof of concept, it is not recommended for any
 use, except maybe documentation about using git remote helpers or satisfying
 your curiosity.
 
-What works:
+What may work:
 
-- small repositories with no folder
+- small repositories
 - cloning local branches
 - being slower than bzr (excellent waste of time!)
 
-What doesn't:
+What certainly doesn't:
 
 - empty repositories
-- folders
 - pushing
 - listing remote refs (they are imported first)
 - using differential import (every file of every revision is imported)
