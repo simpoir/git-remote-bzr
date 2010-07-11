@@ -54,38 +54,27 @@ def do_capabilities(repo, args):
     ##print "import"
     ##print "export"
     ##print "gitdir"
-    ##print "refspec refs/heads/*:%s*" % repo.prefix
+    ##print "refspec refs/heads/*:refs/bzr/branches/*"
 
     print # end capabilities
 
+def fetch(repo):
+    # TODO only fetch new revisions
+    prev_commit = None
+    for rev_id in repo.branch.revision_history():
+        prev_commit = fetch_one(repo, rev_id, prev_commit)
+
+    return prev_commit
 
 def do_list(repo, args):
     """Lists all known references.
     """
 
-    branch = repo.get_branch()
+    prev_commit = fetch(repo)
 
-##    for ref in branch.revision_history():
-##        debug("? %s", ref)
-##        print "? %s" % ref
-##
-##    headname = branch.last_revision()
-##    if headname != 'NULL_REVISION':
-##        debug("@%s HEAD" % headname)
-##        print "@%s HEAD" % headname
     # FIXME replace by actual branch name
-    print "? refs/heads/master"
-
-    ##for ref in repo.revs:
-    ##    debug("? refs/heads/%s", ref)
-    ##    print "? refs/heads/%s" % ref
-
-    ##if repo.head:
-    ##    debug("@refs/heads/%s HEAD" % repo.head)
-    ##    print "@refs/heads/%s HEAD" % repo.head
-    ##else:
-    ##    debug("@refs/heads/master HEAD")
-    ##    print "@refs/heads/master HEAD"
+    print "%s HEAD" % prev_commit
+    print "%s refs/heads/master" % prev_commit
 
     print # end list
 
@@ -102,8 +91,9 @@ def do_list(repo, args):
 #    repo = local_repo(repo, path)
 #    return repo
 
-def fetch_one(repo, rev_id):
-    """Imports a single revision and write it
+# FIXME bzr history is linear? maybe support for multiple parents?
+def fetch_one(repo, rev_id, parent=None):
+    """Imports a single revision and write it to the database.
 
     The object hash of the revision is returned.
     """
@@ -136,7 +126,7 @@ def fetch_one(repo, rev_id):
         tree.unlock()
 
     # write rev trees
-    # TODO write full tree
+    # TODO write full tree (handle recursion)
     content = '\n'.join(tree_content)
     command = start_command(args=['git', 'hash-object',
                                   '--stdin',
@@ -147,15 +137,17 @@ def fetch_one(repo, rev_id):
     tree_root_hash = output.strip('\n')
 
     # write commit
-    # TODO add parent
     # TODO write recursive
     # TODO support multiple parents
     revision = repo.branch.repository.get_revision(rev_id)
     commit = ['tree %s' % tree_root_hash]
-    commit.append('committer %s %d %02d%02d' % (revision.committer,
-                                                revision.timestamp,
-                                                revision.timezone/3600,
-                                                revision.timezone%3600))
+    if parent:
+        commit.append('parent %s' % parent)
+    timestamp = "%d %+03d%02d" % (revision.timestamp,
+                                 revision.timezone/3600,
+                                 revision.timezone%3600)
+    commit.append('author %s %s' % (revision.committer, timestamp))
+    commit.append('committer %s %s' % (revision.committer, timestamp))
     # prepend message with blank line
     commit.append('')
     commit.append(revision.message)
@@ -175,16 +167,6 @@ def fetch_one(repo, rev_id):
 def do_fetch(repo, args):
     """Fetch the given object, writing it to the database
     """
-    if len(args) != 2:
-        die("Fetch needs exactly one sha1 and one name")
-
-    # TODO Fetch first revision, for now
-    first = repo.branch.revision_history()[0]
-    sha1 = fetch_one(repo, first)
-
-    # TODO update refs with correct refname and rev hash
-    run_command(['git', 'update-ref', 'refs/remotes/origin/master', sha1])
-
     # print blank line when done
     print ""
 
