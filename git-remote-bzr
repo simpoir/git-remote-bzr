@@ -118,9 +118,10 @@ def fetch_tree(tree, rev_id, folder=None):
                 output, errors = command.communicate(content)
                 blob_hash = output.strip('\n')
 
-                # TODO fetch file mode mode
-                tree_content.append('100644 %s\0%s'%(base_name.encode('utf-8'),
-                                                     binascii.a2b_hex(blob_hash)))
+                perm = (tree_elem[4].executable and '755') or '644'
+                tree_content.append('100%s %s\0%s'%(perm,
+                                                    base_name.encode('utf-8'),
+                                                    binascii.a2b_hex(blob_hash)))
     except StopIteration:
         pass
 
