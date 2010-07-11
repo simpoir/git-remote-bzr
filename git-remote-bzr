@@ -130,7 +130,7 @@ def fetch_one(repo, rev_id, parent=None):
 
     # write rev trees
     # TODO write full tree (handle recursion)
-    content = '\n'.join(tree_content)
+    content = ''.join(tree_content)
     command = start_command(args=['git', 'hash-object',
                                   '--stdin',
                                   '-t', 'tree',
